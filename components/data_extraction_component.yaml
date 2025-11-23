@@ -1,0 +1,91 @@
+name: Data extraction
+description: Uses `dvc get` to download the versioned dataset from the Git/DVC repo.
+inputs:
+- {name: repo_url, type: String}
+- {name: dvc_data_path, type: String, default: data/raw_data.csv, optional: true}
+- {name: output_csv_path, type: String, default: data/raw_data_kfp.csv, optional: true}
+outputs:
+- {name: Output, type: String}
+implementation:
+  container:
+    image: python:3.10
+    command:
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp)
+      printf "%s" "$0" > "$program_path"
+      python3 -u "$program_path" "$@"
+    - |
+      def data_extraction(
+          repo_url,
+          dvc_data_path = "data/raw_data.csv",
+          output_csv_path = "data/raw_data_kfp.csv",
+      ):
+          """
+          Uses `dvc get` to download the versioned dataset from the Git/DVC repo.
+
+          Inputs:
+              repo_url: URL of the Git repo that has DVC + dataset
+              dvc_data_path: path to the data file inside that repo
+              output_csv_path: where to save the downloaded CSV locally
+
+          Output:
+              output_csv_path: path to the downloaded CSV file
+          """
+          os.makedirs(os.path.dirname(output_csv_path), exist_ok=True)
+
+          subprocess.run(
+              ["dvc", "get", repo_url, dvc_data_path, "-o", output_csv_path],
+              check=True,
+          )
+
+          return output_csv_path
+
+      def _serialize_str(str_value: str) -> str:
+          if not isinstance(str_value, str):
+              raise TypeError('Value "{}" has type "{}" instead of str.'.format(
+                  str(str_value), str(type(str_value))))
+          return str_value
+
+      import argparse
+      _parser = argparse.ArgumentParser(prog='Data extraction', description='Uses `dvc get` to download the versioned dataset from the Git/DVC repo.')
+      _parser.add_argument("--repo-url", dest="repo_url", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--dvc-data-path", dest="dvc_data_path", type=str, required=False, default=argparse.SUPPRESS)
+      _parser.add_argument("--output-csv-path", dest="output_csv_path", type=str, required=False, default=argparse.SUPPRESS)
+      _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+      _parsed_args = vars(_parser.parse_args())
+      _output_files = _parsed_args.pop("_output_paths", [])
+
+      _outputs = data_extraction(**_parsed_args)
+
+      _outputs = [_outputs]
+
+      _output_serializers = [
+          _serialize_str,
+
+      ]
+
+      import os
+      for idx, output_file in enumerate(_output_files):
+          try:
+              os.makedirs(os.path.dirname(output_file))
+          except OSError:
+              pass
+          with open(output_file, 'w') as f:
+              f.write(_output_serializers[idx](_outputs[idx]))
+    args:
+    - --repo-url
+    - {inputValue: repo_url}
+    - if:
+        cond: {isPresent: dvc_data_path}
+        then:
+        - --dvc-data-path
+        - {inputValue: dvc_data_path}
+    - if:
+        cond: {isPresent: output_csv_path}
+        then:
+        - --output-csv-path
+        - {inputValue: output_csv_path}
+    - '----output-paths'
+    - {outputPath: Output}

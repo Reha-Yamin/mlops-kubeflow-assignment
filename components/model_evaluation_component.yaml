@@ -1,0 +1,103 @@
+name: Model evaluation
+description: Evaluates the trained model on the test set and saves metrics.
+inputs:
+- {name: model_path, type: String}
+- {name: X_test_path, type: String}
+- {name: y_test_path, type: String}
+- {name: metrics_path, type: String, default: metrics/metrics.json, optional: true}
+outputs:
+- {name: Output, type: String}
+implementation:
+  container:
+    image: python:3.10
+    command:
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp)
+      printf "%s" "$0" > "$program_path"
+      python3 -u "$program_path" "$@"
+    - |
+      def model_evaluation(
+          model_path,
+          X_test_path,
+          y_test_path,
+          metrics_path = "metrics/metrics.json",
+      ):
+          """
+          Evaluates the trained model on the test set and saves metrics.
+
+          Inputs:
+              model_path: path to the trained model file
+              X_test_path: path to scaled test features CSV
+              y_test_path: path to test targets CSV
+              metrics_path: JSON file where metrics will be stored
+
+          Output:
+              metrics_path: path to the saved metrics JSON file
+          """
+          os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
+
+          model = joblib.load(model_path)
+          X_test = pd.read_csv(X_test_path)
+          y_test = pd.read_csv(y_test_path, squeeze=True)
+
+          y_pred = model.predict(X_test)
+
+          rmse = mean_squared_error(y_test, y_pred, squared=False)
+          r2 = r2_score(y_test, y_pred)
+
+          metrics = {"rmse": rmse, "r2": r2}
+
+          with open(metrics_path, "w") as f:
+              json.dump(metrics, f)
+
+          return metrics_path
+
+      def _serialize_str(str_value: str) -> str:
+          if not isinstance(str_value, str):
+              raise TypeError('Value "{}" has type "{}" instead of str.'.format(
+                  str(str_value), str(type(str_value))))
+          return str_value
+
+      import argparse
+      _parser = argparse.ArgumentParser(prog='Model evaluation', description='Evaluates the trained model on the test set and saves metrics.')
+      _parser.add_argument("--model-path", dest="model_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--X-test-path", dest="X_test_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--y-test-path", dest="y_test_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--metrics-path", dest="metrics_path", type=str, required=False, default=argparse.SUPPRESS)
+      _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+      _parsed_args = vars(_parser.parse_args())
+      _output_files = _parsed_args.pop("_output_paths", [])
+
+      _outputs = model_evaluation(**_parsed_args)
+
+      _outputs = [_outputs]
+
+      _output_serializers = [
+          _serialize_str,
+
+      ]
+
+      import os
+      for idx, output_file in enumerate(_output_files):
+          try:
+              os.makedirs(os.path.dirname(output_file))
+          except OSError:
+              pass
+          with open(output_file, 'w') as f:
+              f.write(_output_serializers[idx](_outputs[idx]))
+    args:
+    - --model-path
+    - {inputValue: model_path}
+    - --X-test-path
+    - {inputValue: X_test_path}
+    - --y-test-path
+    - {inputValue: y_test_path}
+    - if:
+        cond: {isPresent: metrics_path}
+        then:
+        - --metrics-path
+        - {inputValue: metrics_path}
+    - '----output-paths'
+    - {outputPath: Output}

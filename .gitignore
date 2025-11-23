@@ -1,1 +1,9 @@
 .dvc/
+pipeline.yaml
+helm.zip
+windows-amd64/
+minikube/
+__pycache__/
+*.joblib
+*.csv
+*.zip

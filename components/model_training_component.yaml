@@ -1,0 +1,113 @@
+name: Model training
+description: Trains a RandomForest regressor and saves the model.
+inputs:
+- {name: X_train_path, type: String}
+- {name: y_train_path, type: String}
+- {name: n_estimators, type: Integer, default: '100', optional: true}
+- {name: max_depth, type: Integer, default: '5', optional: true}
+- {name: model_path, type: String, default: models/random_forest.joblib, optional: true}
+outputs:
+- {name: Output, type: String}
+implementation:
+  container:
+    image: python:3.10
+    command:
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp)
+      printf "%s" "$0" > "$program_path"
+      python3 -u "$program_path" "$@"
+    - |
+      def model_training(
+          X_train_path,
+          y_train_path,
+          n_estimators = 100,
+          max_depth = 5,
+          model_path = "models/random_forest.joblib",
+      ):
+          """
+          Trains a RandomForest regressor and saves the model.
+
+          Inputs:
+              X_train_path: path to scaled training features CSV
+              y_train_path: path to training targets CSV
+              n_estimators: number of trees in the forest
+              max_depth: max depth of each tree
+              model_path: where to save the trained model
+
+          Output:
+              model_path: path to the saved model file
+          """
+          os.makedirs(os.path.dirname(model_path), exist_ok=True)
+
+          X_train = pd.read_csv(X_train_path)
+          y_train = pd.read_csv(y_train_path, squeeze=True)
+
+          model = RandomForestRegressor(
+              n_estimators=n_estimators,
+              max_depth=max_depth,
+              random_state=42,
+          )
+          model.fit(X_train, y_train)
+
+          joblib.dump(model, model_path)
+
+          return model_path
+
+      def _serialize_str(str_value: str) -> str:
+          if not isinstance(str_value, str):
+              raise TypeError('Value "{}" has type "{}" instead of str.'.format(
+                  str(str_value), str(type(str_value))))
+          return str_value
+
+      import argparse
+      _parser = argparse.ArgumentParser(prog='Model training', description='Trains a RandomForest regressor and saves the model.')
+      _parser.add_argument("--X-train-path", dest="X_train_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--y-train-path", dest="y_train_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--n-estimators", dest="n_estimators", type=int, required=False, default=argparse.SUPPRESS)
+      _parser.add_argument("--max-depth", dest="max_depth", type=int, required=False, default=argparse.SUPPRESS)
+      _parser.add_argument("--model-path", dest="model_path", type=str, required=False, default=argparse.SUPPRESS)
+      _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+      _parsed_args = vars(_parser.parse_args())
+      _output_files = _parsed_args.pop("_output_paths", [])
+
+      _outputs = model_training(**_parsed_args)
+
+      _outputs = [_outputs]
+
+      _output_serializers = [
+          _serialize_str,
+
+      ]
+
+      import os
+      for idx, output_file in enumerate(_output_files):
+          try:
+              os.makedirs(os.path.dirname(output_file))
+          except OSError:
+              pass
+          with open(output_file, 'w') as f:
+              f.write(_output_serializers[idx](_outputs[idx]))
+    args:
+    - --X-train-path
+    - {inputValue: X_train_path}
+    - --y-train-path
+    - {inputValue: y_train_path}
+    - if:
+        cond: {isPresent: n_estimators}
+        then:
+        - --n-estimators
+        - {inputValue: n_estimators}
+    - if:
+        cond: {isPresent: max_depth}
+        then:
+        - --max-depth
+        - {inputValue: max_depth}
+    - if:
+        cond: {isPresent: model_path}
+        then:
+        - --model-path
+        - {inputValue: model_path}
+    - '----output-paths'
+    - {outputPath: Output}

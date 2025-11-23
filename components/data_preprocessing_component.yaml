@@ -1,0 +1,124 @@
+name: Data preprocessing
+description: Loads the raw CSV, splits into train/test, scales features, and saves
+  to disk.
+inputs:
+- {name: raw_csv_path, type: String}
+- {name: test_size, type: Float, default: '0.2', optional: true}
+- {name: random_state, type: Integer, default: '42', optional: true}
+outputs:
+- {name: X_train_path, type: String}
+- {name: X_test_path, type: String}
+- {name: y_train_path, type: String}
+- {name: y_test_path, type: String}
+- {name: scaler_path, type: String}
+implementation:
+  container:
+    image: python:3.10
+    command:
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp)
+      printf "%s" "$0" > "$program_path"
+      python3 -u "$program_path" "$@"
+    - |
+      def data_preprocessing(
+          raw_csv_path,
+          test_size = 0.2,
+          random_state = 42,
+      ):
+          """
+          Loads the raw CSV, splits into train/test, scales features, and saves to disk.
+
+          Inputs:
+              raw_csv_path: CSV file with the Boston housing data
+              test_size: fraction of data to use for test set
+              random_state: random seed for reproducibility
+
+          Outputs:
+              X_train_path, X_test_path, y_train_path, y_test_path, scaler_path
+          """
+          df = pd.read_csv(raw_csv_path)
+
+          # BostonHousing.csv has target column "medv"
+          X = df.drop(columns=["medv"])
+          y = df["medv"]
+
+          X_train, X_test, y_train, y_test = train_test_split(
+              X, y, test_size=test_size, random_state=random_state
+          )
+
+          scaler = StandardScaler()
+          X_train_scaled = scaler.fit_transform(X_train)
+          X_test_scaled = scaler.transform(X_test)
+
+          os.makedirs("data", exist_ok=True)
+
+          X_train_path = "data/X_train.csv"
+          X_test_path = "data/X_test.csv"
+          y_train_path = "data/y_train.csv"
+          y_test_path = "data/y_test.csv"
+          scaler_path = "data/scaler.joblib"
+
+          pd.DataFrame(X_train_scaled, columns=X.columns).to_csv(X_train_path, index=False)
+          pd.DataFrame(X_test_scaled, columns=X.columns).to_csv(X_test_path, index=False)
+          y_train.to_csv(y_train_path, index=False)
+          y_test.to_csv(y_test_path, index=False)
+
+          joblib.dump(scaler, scaler_path)
+
+          return X_train_path, X_test_path, y_train_path, y_test_path, scaler_path
+
+      def _serialize_str(str_value: str) -> str:
+          if not isinstance(str_value, str):
+              raise TypeError('Value "{}" has type "{}" instead of str.'.format(
+                  str(str_value), str(type(str_value))))
+          return str_value
+
+      import argparse
+      _parser = argparse.ArgumentParser(prog='Data preprocessing', description='Loads the raw CSV, splits into train/test, scales features, and saves to disk.')
+      _parser.add_argument("--raw-csv-path", dest="raw_csv_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--test-size", dest="test_size", type=float, required=False, default=argparse.SUPPRESS)
+      _parser.add_argument("--random-state", dest="random_state", type=int, required=False, default=argparse.SUPPRESS)
+      _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=5)
+      _parsed_args = vars(_parser.parse_args())
+      _output_files = _parsed_args.pop("_output_paths", [])
+
+      _outputs = data_preprocessing(**_parsed_args)
+
+      _output_serializers = [
+          _serialize_str,
+          _serialize_str,
+          _serialize_str,
+          _serialize_str,
+          _serialize_str,
+
+      ]
+
+      import os
+      for idx, output_file in enumerate(_output_files):
+          try:
+              os.makedirs(os.path.dirname(output_file))
+          except OSError:
+              pass
+          with open(output_file, 'w') as f:
+              f.write(_output_serializers[idx](_outputs[idx]))
+    args:
+    - --raw-csv-path
+    - {inputValue: raw_csv_path}
+    - if:
+        cond: {isPresent: test_size}
+        then:
+        - --test-size
+        - {inputValue: test_size}
+    - if:
+        cond: {isPresent: random_state}
+        then:
+        - --random-state
+        - {inputValue: random_state}
+    - '----output-paths'
+    - {outputPath: X_train_path}
+    - {outputPath: X_test_path}
+    - {outputPath: y_train_path}
+    - {outputPath: y_test_path}
+    - {outputPath: scaler_path}
