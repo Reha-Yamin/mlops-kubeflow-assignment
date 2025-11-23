@@ -1,5 +1,4 @@
 pipeline {
-    // We just run on the default Windows node
     agent any
 
     stages {
@@ -13,19 +12,23 @@ pipeline {
 
         stage('Environment Setup') {
             steps {
-                echo 'Setting up Python environment...'
-                // Windows commands -> use bat
+                echo 'Installing Python dependencies (user mode)...'
                 bat 'python --version'
-                bat 'pip install --upgrade pip'
-                bat 'pip install -r requirements.txt'
+                bat 'pip --version'
+
+                // Install requirements for user only (NOT system-wide)
+                bat 'pip install --user -r requirements.txt'
             }
         }
 
         stage('Pipeline Compilation') {
             steps {
-                echo 'Compiling Kubeflow pipeline to pipeline.yaml...'
+                echo 'Compiling Kubeflow pipeline...'
+                
+                // Use user python path
                 bat 'python pipeline.py'
-                // fail build if pipeline.yaml wasn't created
+
+                // Verify pipeline.yaml was created
                 bat 'if not exist pipeline.yaml ( exit /b 1 )'
             }
         }
@@ -33,11 +36,11 @@ pipeline {
 
     post {
         success {
-            echo ' Jenkins CI pipeline finished successfully!'
+            echo "Jenkins CI pipeline finished successfully!"
             archiveArtifacts artifacts: 'pipeline.yaml', fingerprint: true
         }
         failure {
-            echo ' Jenkins CI pipeline failed. Check the log above.'
+            echo " Jenkins CI pipeline failed. See logs above."
         }
     }
 }
