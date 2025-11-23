@@ -77,4 +77,4 @@ if __name__ == "__main__":
         pipeline_func=housing_pipeline,
         package_path="pipeline.yaml",
     )
-    print("✅ pipeline.yaml generated successfully!")
+    print(" pipeline.yaml generated successfully!")
